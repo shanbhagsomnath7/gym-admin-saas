@@ -1,3 +1,12 @@
+from datetime import date
+from app.models.models import Gym, Member, Plan, Attendance
+from app.schemas.schemas import (
+    GymCreate, GymOut, 
+    MemberCreate, MemberOut, 
+    PlanCreate, PlanOut,
+    AttendanceCreate, AttendanceOut
+)
+
 from typing import List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -85,3 +94,40 @@ def create_plan(gym_id: UUID, plan_in: PlanCreate, db: Session = Depends(get_db)
 @router.get("/gyms/{gym_id}/plans", response_model=List[PlanOut])
 def list_plans(gym_id: UUID, db: Session = Depends(get_db)):
     return db.query(Plan).filter(Plan.gym_id == gym_id).all()
+
+# --- Daily Attendance & Check-in ---
+@router.post("/gyms/{gym_id}/checkin", response_model=AttendanceOut, status_code=status.HTTP_201_CREATED)
+def checkin_member(gym_id: UUID, payload: AttendanceCreate, db: Session = Depends(get_db)):
+    member = db.query(Member).filter(Member.id == payload.member_id, Member.gym_id == gym_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found.")
+
+    today = date.today()
+
+    # Prevent duplicate check-ins on the same calendar day
+    existing = db.query(Attendance).filter(
+        Attendance.gym_id == gym_id,
+        Attendance.member_id == payload.member_id,
+        Attendance.check_in_date == today
+    ).first()
+    if existing:
+        return existing
+
+    record = Attendance(
+        gym_id=gym_id,
+        member_id=payload.member_id,
+        check_in_date=today
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+@router.get("/gyms/{gym_id}/attendance/today", response_model=List[UUID])
+def get_today_checkins(gym_id: UUID, db: Session = Depends(get_db)):
+    today = date.today()
+    records = db.query(Attendance.member_id).filter(
+        Attendance.gym_id == gym_id,
+        Attendance.check_in_date == today
+    ).all()
+    return [r[0] for r in records]

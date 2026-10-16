@@ -56,3 +56,17 @@ class MemberOut(MemberBase):
 
     class Config:
         from_attributes = True
+
+# --- Attendance Schemas ---
+class AttendanceCreate(BaseModel):
+    member_id: UUID
+
+class AttendanceOut(BaseModel):
+    id: UUID
+    gym_id: UUID
+    member_id: UUID
+    check_in_date: date
+    check_in_time: datetime
+
+    class Config:
+        from_attributes = True

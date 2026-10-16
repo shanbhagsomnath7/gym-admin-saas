@@ -47,3 +47,14 @@ class Member(Base):
 
     gym = relationship("Gym", back_populates="members")
     plan = relationship("Plan", back_populates="members")
+
+class Attendance(Base):
+    __tablename__ = "attendance"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    gym_id = Column(UUID(as_uuid=True), ForeignKey("gyms.id"), nullable=False)
+    member_id = Column(UUID(as_uuid=True), ForeignKey("members.id"), nullable=False)
+    check_in_date = Column(Date, default=date.today, nullable=False)
+    check_in_time = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    member = relationship("Member", backref="attendances")

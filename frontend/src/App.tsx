@@ -11,7 +11,8 @@ import {
   Calendar,
   Trash2,
   IndianRupee,
-  Layers
+  Layers,
+  UserCheck
 } from 'lucide-react';
 import { apiClient } from './services/api';
 import type { Member, MemberCreatePayload, Plan } from './services/api';
@@ -21,6 +22,7 @@ const GYM_ID = 'f0038c6c-8afb-4608-b71b-8377314e343b';
 export default function App() {
   const [members, setMembers] = useState<Member[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [checkedInIds, setCheckedInIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -39,18 +41,31 @@ export default function App() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [membersRes, plansRes] = await Promise.all([
-        apiClient.get<Member[]>(`/gyms/${GYM_ID}/members`),
-        apiClient.get<Plan[]>(`/gyms/${GYM_ID}/plans`)
-      ]);
-      setMembers(membersRes.data);
-      setPlans(plansRes.data);
-      if (plansRes.data.length > 0 && !formData.plan_id) {
-        // Auto-select first plan by default
-        handlePlanSelect(plansRes.data[0]);
+      
+      try {
+        const membersRes = await apiClient.get<Member[]>(`/gyms/${GYM_ID}/members`);
+        setMembers(membersRes.data);
+      } catch (err) {
+        console.error('Failed to fetch members:', err);
       }
-    } catch (err) {
-      console.error('Failed to fetch data:', err);
+
+      try {
+        const plansRes = await apiClient.get<Plan[]>(`/gyms/${GYM_ID}/plans`);
+        setPlans(plansRes.data);
+        if (plansRes.data.length > 0 && !formData.plan_id) {
+          handlePlanSelect(plansRes.data[0]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch plans:', err);
+      }
+
+      try {
+        const checkinsRes = await apiClient.get<string[]>(`/gyms/${GYM_ID}/attendance/today`);
+        setCheckedInIds(checkinsRes.data);
+      } catch (err) {
+        console.error('Failed to fetch attendance:', err);
+      }
+
     } finally {
       setLoading(false);
     }
@@ -60,7 +75,6 @@ export default function App() {
     fetchData();
   }, []);
 
-  // When a plan is chosen, auto-compute expiry date
   const handlePlanSelect = (plan: Plan) => {
     const today = new Date();
     const expiry = new Date();
@@ -111,6 +125,15 @@ export default function App() {
     }
   };
 
+  const handleCheckIn = async (memberId: string) => {
+    try {
+      await apiClient.post(`/gyms/${GYM_ID}/checkin`, { member_id: memberId });
+      setCheckedInIds(prev => (prev.includes(memberId) ? prev : [...prev, memberId]));
+    } catch (err) {
+      console.error('Check-in failed:', err);
+    }
+  };
+
   const handleDeleteMember = async (memberId: string) => {
     if (!confirm('Are you sure you want to remove this member?')) return;
     try {
@@ -149,12 +172,10 @@ export default function App() {
     return days >= 0 && days <= 5;
   }).length;
 
-  // Monthly Revenue Estimate Calculation:
-  // (Plan Price / (duration_days / 30))
   const monthlyRevenue = members.reduce((acc, member) => {
     if (!member.is_active) return acc;
     const plan = plans.find(p => p.id === member.plan_id);
-    if (!plan) return acc + 1500; // default baseline if no plan attached
+    if (!plan) return acc + 1500;
     const months = plan.duration_days / 30;
     return acc + Math.round(plan.price / months);
   }, 0);
@@ -188,35 +209,45 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 lg:p-8 space-y-6">
         
-        {/* Metric Cards */}
-        <section className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <div className="p-4 rounded-xl border border-slate-800 bg-[#0e1424] flex items-center gap-4">
-            <div className="h-12 w-12 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
-              <Users className="h-6 w-6" />
+        {/* Metric Cards - 4 Grid Layout */}
+        <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="p-4 rounded-xl border border-slate-800 bg-[#0e1424] flex items-center gap-3.5">
+            <div className="h-11 w-11 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+              <Users className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs text-slate-400 uppercase font-medium">Total Members</p>
-              <h3 className="text-2xl font-bold">{members.length}</h3>
+              <p className="text-xs text-slate-400 uppercase font-medium">Members</p>
+              <h3 className="text-xl font-bold">{members.length}</h3>
             </div>
           </div>
 
-          <div className="p-4 rounded-xl border border-slate-800 bg-[#0e1424] flex items-center gap-4">
-            <div className="h-12 w-12 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-              <AlertCircle className="h-6 w-6" />
+          <div className="p-4 rounded-xl border border-slate-800 bg-[#0e1424] flex items-center gap-3.5">
+            <div className="h-11 w-11 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+              <UserCheck className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs text-slate-400 uppercase font-medium">Expiring &le; 5 Days</p>
-              <h3 className="text-2xl font-bold text-amber-400">{expiringSoonCount}</h3>
+              <p className="text-xs text-slate-400 uppercase font-medium">Here Today</p>
+              <h3 className="text-xl font-bold text-emerald-400">{checkedInIds.length}</h3>
             </div>
           </div>
 
-          <div className="col-span-2 md:col-span-1 p-4 rounded-xl border border-slate-800 bg-[#0e1424] flex items-center gap-4">
-            <div className="h-12 w-12 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-              <IndianRupee className="h-6 w-6" />
+          <div className="p-4 rounded-xl border border-slate-800 bg-[#0e1424] flex items-center gap-3.5">
+            <div className="h-11 w-11 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+              <AlertCircle className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs text-slate-400 uppercase font-medium">Est. Monthly MRR</p>
-              <h3 className="text-2xl font-bold text-emerald-400">
+              <p className="text-xs text-slate-400 uppercase font-medium">Expiring Soon</p>
+              <h3 className="text-xl font-bold text-amber-400">{expiringSoonCount}</h3>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl border border-slate-800 bg-[#0e1424] flex items-center gap-3.5">
+            <div className="h-11 w-11 rounded-lg bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 shrink-0">
+              <IndianRupee className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-xs text-slate-400 uppercase font-medium">Est. MRR</p>
+              <h3 className="text-xl font-bold text-teal-300">
                 ₹{monthlyRevenue.toLocaleString('en-IN')}
               </h3>
             </div>
@@ -235,7 +266,7 @@ export default function App() {
           />
         </div>
 
-        {/* Members List */}
+        {/* Members Directory */}
         <section className="space-y-3">
           <div className="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider px-1">
             <span>Members Directory</span>
@@ -261,6 +292,7 @@ export default function App() {
                 const isExpired = daysLeft < 0;
                 const isExpiringSoon = daysLeft >= 0 && daysLeft <= 5;
                 const memberPlan = plans.find(p => p.id === member.plan_id);
+                const isCheckedIn = checkedInIds.includes(member.id);
 
                 return (
                   <div 
@@ -268,7 +300,7 @@ export default function App() {
                     className="p-4 rounded-xl border border-slate-800 bg-[#0e1424] flex flex-col md:flex-row md:items-center justify-between gap-4 hover:border-slate-700 transition"
                   >
                     <div className="space-y-1">
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex items-center gap-2.5 flex-wrap">
                         <span className="font-semibold text-base text-slate-100">{member.full_name}</span>
                         {isExpired ? (
                           <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
@@ -289,6 +321,12 @@ export default function App() {
                             {memberPlan.name}
                           </span>
                         )}
+
+                        {isCheckedIn && (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                            ✓ Checked In
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
@@ -303,13 +341,26 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 self-end md:self-auto">
+                    <div className="flex items-center gap-2 self-end md:self-auto flex-wrap">
+                      <button
+                        onClick={() => handleCheckIn(member.id)}
+                        disabled={isCheckedIn}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition active:scale-95 ${
+                          isCheckedIn
+                            ? 'bg-slate-800 text-slate-500 cursor-default'
+                            : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        }`}
+                      >
+                        <UserCheck className="h-3.5 w-3.5" />
+                        <span>{isCheckedIn ? 'Checked In' : 'Check In'}</span>
+                      </button>
+
                       <button 
                         onClick={() => sendWhatsAppReminder(member)}
-                        className="flex items-center gap-2 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#25D366] border border-[#25D366]/30 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition active:scale-95"
+                        className="flex items-center gap-1.5 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#25D366] border border-[#25D366]/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition active:scale-95"
                       >
                         <MessageSquare className="h-3.5 w-3.5" />
-                        <span>Remind on WhatsApp</span>
+                        <span>Remind</span>
                       </button>
 
                       <button 
@@ -367,7 +418,6 @@ export default function App() {
                 />
               </div>
 
-              {/* Plan Selector */}
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5 flex items-center gap-1">
                   <Layers className="h-3.5 w-3.5 text-emerald-400" />

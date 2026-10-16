@@ -40,3 +40,11 @@ export type MemberCreatePayload = {
   expiry_date: string;
   is_active?: boolean;
 };
+
+export type AttendanceOut = {
+  id: string;
+  gym_id: string;
+  member_id: string;
+  check_in_date: string;
+  check_in_time: string;
+};
