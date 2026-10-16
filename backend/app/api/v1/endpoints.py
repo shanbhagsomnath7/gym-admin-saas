@@ -63,3 +63,25 @@ def delete_member(gym_id: UUID, member_id: UUID, db: Session = Depends(get_db)):
     db.delete(member)
     db.commit()
     return None
+
+# --- Plans Management ---
+@router.post("/gyms/{gym_id}/plans", response_model=PlanOut, status_code=status.HTTP_201_CREATED)
+def create_plan(gym_id: UUID, plan_in: PlanCreate, db: Session = Depends(get_db)):
+    gym = db.query(Gym).filter(Gym.id == gym_id).first()
+    if not gym:
+        raise HTTPException(status_code=404, detail="Gym not found.")
+    
+    new_plan = Plan(
+        gym_id=gym_id,
+        name=plan_in.name,
+        duration_days=plan_in.duration_days,
+        price=plan_in.price
+    )
+    db.add(new_plan)
+    db.commit()
+    db.refresh(new_plan)
+    return new_plan
+
+@router.get("/gyms/{gym_id}/plans", response_model=List[PlanOut])
+def list_plans(gym_id: UUID, db: Session = Depends(get_db)):
+    return db.query(Plan).filter(Plan.gym_id == gym_id).all()
