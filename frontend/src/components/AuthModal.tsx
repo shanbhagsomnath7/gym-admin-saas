@@ -21,22 +21,38 @@ export default function AuthModal({ onSuccess }: AuthModalProps) {
   const [ownerName, setOwnerName] = useState('');
   const [phone, setPhone] = useState('');
 
+  // Bulletproof error message parser to avoid Minified React Error #31
+  const parseErrorMessage = (err: any, fallback: string): string => {
+    const detail = err?.response?.data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail) && detail.length > 0) {
+      const firstErr = detail[0];
+      return typeof firstErr === 'string' ? firstErr : firstErr?.msg || fallback;
+    }
+    if (typeof detail === 'object' && detail !== null) {
+      return detail.msg || JSON.stringify(detail);
+    }
+    return err?.message || fallback;
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     try {
       setLoading(true);
       const res = await apiClient.post<AuthResponse>('/auth/login', {
-        email,
-        password,
+        email: email.trim(),
+        password: password,
       });
+
       localStorage.setItem('gym_auth_token', res.data.access_token);
       localStorage.setItem('gym_active_id', res.data.gym_id);
       localStorage.setItem('gym_name', res.data.gym_name);
       localStorage.setItem('gym_owner_name', res.data.owner_name);
+
       onSuccess(res.data);
     } catch (err: any) {
-      setErrorMsg(err.response?.data?.detail || 'Login failed. Check email or password.');
+      setErrorMsg(parseErrorMessage(err, 'Login failed. Check your email or password.'));
     } finally {
       setLoading(false);
     }
@@ -48,25 +64,32 @@ export default function AuthModal({ onSuccess }: AuthModalProps) {
     try {
       setLoading(true);
       await apiClient.post('/gyms', {
-        name: gymName,
-        owner_name: ownerName,
-        email,
-        phone,
-        password,
+        name: gymName.trim(),
+        owner_name: ownerName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        password: password,
       });
 
-      // Auto-login after registration
-      const loginRes = await apiClient.post<AuthResponse>('/auth/login', {
-        email,
-        password,
-      });
-      localStorage.setItem('gym_auth_token', loginRes.data.access_token);
-      localStorage.setItem('gym_active_id', loginRes.data.gym_id);
-      localStorage.setItem('gym_name', loginRes.data.gym_name);
-      localStorage.setItem('gym_owner_name', loginRes.data.owner_name);
-      onSuccess(loginRes.data);
+      // Attempt automatic sign in right after registering
+      try {
+        const loginRes = await apiClient.post<AuthResponse>('/auth/login', {
+          email: email.trim(),
+          password: password,
+        });
+
+        localStorage.setItem('gym_auth_token', loginRes.data.access_token);
+        localStorage.setItem('gym_active_id', loginRes.data.gym_id);
+        localStorage.setItem('gym_name', loginRes.data.gym_name);
+        localStorage.setItem('gym_owner_name', loginRes.data.owner_name);
+
+        onSuccess(loginRes.data);
+      } catch (loginErr) {
+        setIsLogin(true);
+        setErrorMsg('Registration successful! Please enter your password to sign in.');
+      }
     } catch (err: any) {
-      setErrorMsg(err.response?.data?.detail || 'Registration failed. Email might already exist.');
+      setErrorMsg(parseErrorMessage(err, 'Registration failed. Check inputs or try another email.'));
     } finally {
       setLoading(false);
     }
