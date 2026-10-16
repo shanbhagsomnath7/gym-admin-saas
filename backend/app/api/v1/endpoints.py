@@ -1,3 +1,12 @@
+from app.core.security import get_password_hash, verify_password, create_access_token
+from app.schemas.schemas import (
+    GymCreate, GymOut, 
+    MemberCreate, MemberOut, 
+    PlanCreate, PlanOut,
+    AttendanceCreate, AttendanceOut,
+    LoginRequest, TokenResponse
+)
+
 from datetime import date
 from app.models.models import Gym, Member, Plan, Attendance
 from app.schemas.schemas import (
@@ -25,18 +34,48 @@ def register_gym(gym_in: GymCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="Gym with this email already registered.")
     
-    # Store simple hash/pwd for dev setup
     gym = Gym(
         name=gym_in.name,
         owner_name=gym_in.owner_name,
         email=gym_in.email,
         phone=gym_in.phone,
-        hashed_password=gym_in.password  # We will add bcrypt hashing utility next
+        hashed_password=get_password_hash(gym_in.password)
     )
     db.add(gym)
     db.commit()
     db.refresh(gym)
+
+    # Automatically seed starter plans for every new gym tenant
+    default_plans = [
+        Plan(gym_id=gym.id, name="Monthly", duration_days=30, price=1500.0),
+        Plan(gym_id=gym.id, name="Quarterly", duration_days=90, price=4000.0),
+        Plan(gym_id=gym.id, name="Annual", duration_days=365, price=12000.0),
+    ]
+    db.add_all(default_plans)
+    db.commit()
+
     return gym
+
+@router.post("/auth/login", response_model=TokenResponse)
+def login(credentials: LoginRequest, db: Session = Depends(get_db)):
+    gym = db.query(Gym).filter(Gym.email == credentials.email).first()
+    if not gym or not verify_password(credentials.password, gym.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password."
+        )
+
+    access_token = create_access_token(
+        data={"sub": str(gym.id), "email": gym.email, "gym_name": gym.name}
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        gym_id=gym.id,
+        gym_name=gym.name,
+        owner_name=gym.owner_name
+    )
 
 # --- Members Management (Multi-tenant via gym_id) ---
 @router.post("/gyms/{gym_id}/members", response_model=MemberOut, status_code=status.HTTP_201_CREATED)

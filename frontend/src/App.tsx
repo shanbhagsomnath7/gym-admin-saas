@@ -14,23 +14,27 @@ import {
   Layers, 
   UserCheck, 
   Sparkles,
-  TrendingUp
+  TrendingUp,
+  LogOut
 } from 'lucide-react';
 import { apiClient } from './services/api';
-import type { Member, MemberCreatePayload, Plan } from './services/api';
-
-const GYM_ID = 'f0038c6c-8afb-4608-b71b-8377314e343b';
+import type { Member, MemberCreatePayload, Plan, AuthResponse } from './services/api';
+import AuthModal from './components/AuthModal';
 
 type FilterType = 'all' | 'active' | 'expiring' | 'here_today' | 'expired';
 
 export default function App() {
+  const [gymId, setGymId] = useState<string | null>(() => localStorage.getItem('gym_active_id'));
+  const [gymName, setGymName] = useState<string>(() => localStorage.getItem('gym_name') || 'PowerFit Arena');
+  const [ownerName, setOwnerName] = useState<string>(() => localStorage.getItem('gym_owner_name') || 'Owner');
+
   const [members, setMembers] = useState<Member[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [checkedInIds, setCheckedInIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form State
@@ -43,19 +47,19 @@ export default function App() {
     is_active: true,
   });
 
-  const fetchData = async () => {
+  const fetchData = async (targetGymId: string) => {
     try {
       setLoading(true);
       
       try {
-        const membersRes = await apiClient.get<Member[]>(`/gyms/${GYM_ID}/members`);
+        const membersRes = await apiClient.get<Member[]>(`/gyms/${targetGymId}/members`);
         setMembers(membersRes.data);
       } catch (err) {
         console.error('Failed to fetch members:', err);
       }
 
       try {
-        const plansRes = await apiClient.get<Plan[]>(`/gyms/${GYM_ID}/plans`);
+        const plansRes = await apiClient.get<Plan[]>(`/gyms/${targetGymId}/plans`);
         setPlans(plansRes.data);
         if (plansRes.data.length > 0 && !formData.plan_id) {
           handlePlanSelect(plansRes.data[0]);
@@ -65,7 +69,7 @@ export default function App() {
       }
 
       try {
-        const checkinsRes = await apiClient.get<string[]>(`/gyms/${GYM_ID}/attendance/today`);
+        const checkinsRes = await apiClient.get<string[]>(`/gyms/${targetGymId}/attendance/today`);
         setCheckedInIds(checkinsRes.data);
       } catch (err) {
         console.error('Failed to fetch attendance:', err);
@@ -77,8 +81,27 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (gymId) {
+      fetchData(gymId);
+    }
+  }, [gymId]);
+
+  const handleAuthSuccess = (authData: AuthResponse) => {
+    setGymId(authData.gym_id);
+    setGymName(authData.gym_name);
+    setOwnerName(authData.owner_name);
+  };
+
+  const handleSignOut = () => {
+    localStorage.removeItem('gym_auth_token');
+    localStorage.removeItem('gym_active_id');
+    localStorage.removeItem('gym_name');
+    localStorage.removeItem('gym_owner_name');
+    setGymId(null);
+    setMembers([]);
+    setPlans([]);
+    setCheckedInIds([]);
+  };
 
   const handlePlanSelect = (plan: Plan) => {
     const today = new Date();
@@ -94,7 +117,7 @@ export default function App() {
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.full_name || !formData.phone || !formData.expiry_date || isSubmitting) return;
+    if (!formData.full_name || !formData.phone || !formData.expiry_date || isSubmitting || !gymId) return;
 
     try {
       setIsSubmitting(true);
@@ -111,7 +134,7 @@ export default function App() {
         payload.email = formData.email.trim();
       }
 
-      await apiClient.post(`/gyms/${GYM_ID}/members`, payload);
+      await apiClient.post(`/gyms/${gymId}/members`, payload);
       setIsModalOpen(false);
       setFormData({
         full_name: '',
@@ -121,7 +144,7 @@ export default function App() {
         expiry_date: '',
         is_active: true,
       });
-      await fetchData();
+      await fetchData(gymId);
     } catch (err) {
       console.error('Failed to create member:', err);
       alert('Error creating member.');
@@ -131,8 +154,9 @@ export default function App() {
   };
 
   const handleCheckIn = async (memberId: string) => {
+    if (!gymId) return;
     try {
-      await apiClient.post(`/gyms/${GYM_ID}/checkin`, { member_id: memberId });
+      await apiClient.post(`/gyms/${gymId}/checkin`, { member_id: memberId });
       setCheckedInIds(prev => (prev.includes(memberId) ? prev : [...prev, memberId]));
     } catch (err) {
       console.error('Check-in failed:', err);
@@ -140,10 +164,10 @@ export default function App() {
   };
 
   const handleDeleteMember = async (memberId: string) => {
-    if (!confirm('Are you sure you want to remove this member?')) return;
+    if (!gymId || !confirm('Are you sure you want to remove this member?')) return;
     try {
-      await apiClient.delete(`/gyms/${GYM_ID}/members/${memberId}`);
-      await fetchData();
+      await apiClient.delete(`/gyms/${gymId}/members/${memberId}`);
+      await fetchData(gymId);
     } catch (err) {
       console.error('Failed to delete member:', err);
       alert('Could not delete member.');
@@ -155,7 +179,7 @@ export default function App() {
     if (cleanPhone.length === 10) cleanPhone = `91${cleanPhone}`;
 
     const message = encodeURIComponent(
-      `Hi ${member.full_name}! 💪 Your PowerFit Arena membership expires on ${member.expiry_date}. Renew today to keep your streak going! You can pay via UPI or at the front desk.`
+      `Hi ${member.full_name}! 💪 Your ${gymName} membership expires on ${member.expiry_date}. Renew today to keep your streak going! You can pay via UPI or at the front desk.`
     );
     window.open(`https://wa.me/${cleanPhone}?text=${message}`, '_blank');
   };
@@ -210,6 +234,11 @@ export default function App() {
       .substring(0, 2);
   };
 
+  // If unauthenticated, show the Auth Portal
+  if (!gymId) {
+    return <AuthModal onSuccess={handleAuthSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col font-sans selection:bg-emerald-500/20">
       
@@ -227,29 +256,39 @@ export default function App() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-extrabold text-base tracking-tight text-white">PowerFit Arena</h1>
+              <h1 className="font-extrabold text-base tracking-tight text-white">{gymName}</h1>
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 tracking-wider">
                 LIVE
               </span>
             </div>
             <p className="text-xs text-slate-400 flex items-center gap-1.5 font-medium">
-              <span>Operations Hub</span>
+              <span>{ownerName}</span>
               <span className="text-slate-600">•</span>
-              <span>Mumbai</span>
+              <span>Hub</span>
             </p>
           </div>
         </div>
 
-        <button 
-          onClick={() => {
-            if (plans.length > 0) handlePlanSelect(plans[0]);
-            setIsModalOpen(true);
-          }}
-          className="group relative flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs sm:text-sm transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
-        >
-          <Plus className="h-4 w-4 transition-transform group-hover:rotate-90 duration-300" />
-          <span>Add Member</span>
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button 
+            onClick={() => {
+              if (plans.length > 0) handlePlanSelect(plans[0]);
+              setIsModalOpen(true);
+            }}
+            className="group relative flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs sm:text-sm transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
+          >
+            <Plus className="h-4 w-4 transition-transform group-hover:rotate-90 duration-300" />
+            <span>Add Member</span>
+          </button>
+
+          <button
+            onClick={handleSignOut}
+            title="Sign out of gym"
+            className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 border border-slate-800 transition"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
       </header>
 
       {/* Main Container */}
@@ -258,7 +297,6 @@ export default function App() {
         {/* Modern Metrics Grid */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           
-          {/* Card 1: Total Members */}
           <div className="relative overflow-hidden p-5 rounded-2xl border border-slate-800/90 bg-gradient-to-b from-[#0e1424] to-[#0a0f1d] shadow-sm hover:border-slate-700/80 transition-all">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold tracking-wider text-slate-400 uppercase">Total Members</span>
@@ -276,7 +314,6 @@ export default function App() {
             <div className="mt-2 text-[11px] text-slate-500 font-medium">Enrolled athletes</div>
           </div>
 
-          {/* Card 2: Here Today */}
           <div className="relative overflow-hidden p-5 rounded-2xl border border-slate-800/90 bg-gradient-to-b from-[#0e1424] to-[#0a0f1d] shadow-sm hover:border-slate-700/80 transition-all">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold tracking-wider text-slate-400 uppercase">Check-ins Today</span>
@@ -293,7 +330,6 @@ export default function App() {
             <div className="mt-2 text-[11px] text-slate-500 font-medium">Logged today</div>
           </div>
 
-          {/* Card 3: Expiring Soon */}
           <div className="relative overflow-hidden p-5 rounded-2xl border border-slate-800/90 bg-gradient-to-b from-[#0e1424] to-[#0a0f1d] shadow-sm hover:border-slate-700/80 transition-all">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold tracking-wider text-slate-400 uppercase">Expiring &le; 5 Days</span>
@@ -308,7 +344,6 @@ export default function App() {
             <div className="mt-2 text-[11px] text-slate-500 font-medium">1-tap reminder ready</div>
           </div>
 
-          {/* Card 4: Est. Revenue */}
           <div className="relative overflow-hidden p-5 rounded-2xl border border-slate-800/90 bg-gradient-to-b from-[#0e1424] to-[#0a0f1d] shadow-sm hover:border-slate-700/80 transition-all">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold tracking-wider text-slate-400 uppercase">Monthly MRR</span>
@@ -330,8 +365,6 @@ export default function App() {
         {/* Filter Pills + Search Bar */}
         <section className="space-y-4">
           <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-            
-            {/* Filter Pills */}
             <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[#0e1424] border border-slate-800/80 overflow-x-auto text-xs">
               {[
                 { id: 'all', label: 'All', count: members.length },
@@ -359,7 +392,6 @@ export default function App() {
               ))}
             </div>
 
-            {/* Live Search Input */}
             <div className="relative sm:w-80">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
               <input 
@@ -373,17 +405,17 @@ export default function App() {
           </div>
         </section>
 
-        {/* Members Directory Cards */}
+        {/* Members Directory */}
         <section className="space-y-3">
           {loading ? (
             <div className="p-16 text-center space-y-3">
               <div className="h-8 w-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
-              <p className="text-xs text-slate-500 font-medium">Synchronizing gym roster...</p>
+              <p className="text-xs text-slate-500 font-medium">Loading gym members...</p>
             </div>
           ) : filteredMembers.length === 0 ? (
             <div className="p-16 text-center rounded-2xl border border-dashed border-slate-800/90 bg-[#0a0f1d]/50 text-slate-400 space-y-3">
               <Users className="h-8 w-8 mx-auto text-slate-600" />
-              <p className="text-sm font-semibold">No athletes found matching this filter.</p>
+              <p className="text-sm font-semibold">No athletes found matching this view.</p>
               <button 
                 onClick={() => {
                   setActiveFilter('all');
@@ -408,9 +440,7 @@ export default function App() {
                     key={member.id} 
                     className="group relative p-4 sm:p-5 rounded-2xl border border-slate-800/80 bg-gradient-to-r from-[#0d1322] to-[#0a0f1c] hover:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-200 shadow-sm"
                   >
-                    {/* Left: Avatar + Details */}
                     <div className="flex items-center gap-4">
-                      {/* Avatar */}
                       <div className="relative shrink-0">
                         <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-700/60 flex items-center justify-center font-bold text-sm text-slate-200 shadow-inner">
                           {getInitials(member.full_name)}
@@ -422,14 +452,12 @@ export default function App() {
                         )}
                       </div>
 
-                      {/* Info */}
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-bold text-sm sm:text-base text-white tracking-tight">
                             {member.full_name}
                           </span>
 
-                          {/* Expiry Pill */}
                           {isExpired ? (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
                               Expired
@@ -451,7 +479,6 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* Metadata row */}
                         <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
                           <span className="flex items-center gap-1.5 font-mono">
                             <Phone className="h-3 w-3 text-slate-500" />
@@ -465,10 +492,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Right: Quick Action Buttons */}
                     <div className="flex items-center gap-2 self-end md:self-auto flex-wrap">
-                      
-                      {/* Check-in Button */}
                       <button
                         onClick={() => handleCheckIn(member.id)}
                         disabled={isCheckedIn}
@@ -482,7 +506,6 @@ export default function App() {
                         <span>{isCheckedIn ? 'Checked In' : 'Check In'}</span>
                       </button>
 
-                      {/* WhatsApp Reminder Button */}
                       <button 
                         onClick={() => sendWhatsAppReminder(member)}
                         className="flex items-center gap-1.5 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#25D366] border border-[#25D366]/30 px-3.5 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-sm hover:shadow-[#25D366]/10"
@@ -491,7 +514,6 @@ export default function App() {
                         <span>Remind</span>
                       </button>
 
-                      {/* Delete Icon */}
                       <button 
                         onClick={() => handleDeleteMember(member.id)}
                         title="Delete member"
@@ -500,7 +522,6 @@ export default function App() {
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
-
                   </div>
                 );
               })}
@@ -513,7 +534,6 @@ export default function App() {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-[#0d1322] border border-slate-800 rounded-3xl p-6 sm:p-7 space-y-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
               <div>
                 <h3 className="font-extrabold text-base text-white">Enroll New Athlete</h3>
@@ -536,7 +556,7 @@ export default function App() {
                   placeholder="e.g. Vikram Malhotra"
                   value={formData.full_name}
                   onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-800 bg-[#080c16] text-slate-200 focus:outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/40"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-800 bg-[#080c16] text-slate-200 focus:outline-none focus:border-emerald-500/60 font-medium"
                 />
               </div>
 
@@ -548,11 +568,10 @@ export default function App() {
                   placeholder="+919876543210"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-800 bg-[#080c16] text-slate-200 focus:outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/40 font-mono"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-800 bg-[#080c16] text-slate-200 focus:outline-none focus:border-emerald-500/60 font-mono"
                 />
               </div>
 
-              {/* Plan Choice Cards */}
               <div>
                 <label className="block font-medium text-slate-400 mb-2 flex items-center gap-1.5">
                   <Layers className="h-3.5 w-3.5 text-emerald-400" />
@@ -587,7 +606,7 @@ export default function App() {
                   required
                   value={formData.expiry_date}
                   onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-800 bg-[#080c16] text-slate-200 focus:outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/40 font-mono"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-800 bg-[#080c16] text-slate-200 focus:outline-none focus:border-emerald-500/60 font-mono"
                 />
               </div>
 
