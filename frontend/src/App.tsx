@@ -15,11 +15,13 @@ import {
   UserCheck, 
   Sparkles,
   TrendingUp,
-  LogOut
+  LogOut,
+  Settings
 } from 'lucide-react';
 import { apiClient } from './services/api';
 import type { Member, MemberCreatePayload, Plan, AuthResponse } from './services/api';
 import AuthModal from './components/AuthModal';
+import SettingsModal from './components/SettingsModal';
 
 type FilterType = 'all' | 'active' | 'expiring' | 'here_today' | 'expired';
 
@@ -34,6 +36,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -90,6 +93,7 @@ export default function App() {
     setGymId(authData.gym_id);
     setGymName(authData.gym_name);
     setOwnerName(authData.owner_name);
+    fetchData(authData.gym_id);
   };
 
   const handleSignOut = () => {
@@ -184,7 +188,8 @@ export default function App() {
     window.open(`https://wa.me/${cleanPhone}?text=${message}`, '_blank');
   };
 
-  const getDaysLeft = (expiryDate: string) => {
+  const getDaysLeft = (expiryDate?: string) => {
+    if (!expiryDate) return 0;
     const diffTime = new Date(expiryDate).getTime() - new Date().getTime();
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
@@ -197,11 +202,13 @@ export default function App() {
   }, [members]);
 
   const monthlyRevenue = useMemo(() => {
+    if (!members || members.length === 0) return 0;
     return members.reduce((acc, member) => {
       if (!member.is_active) return acc;
       const plan = plans.find(p => p.id === member.plan_id);
       if (!plan) return acc + 1500;
-      const months = plan.duration_days / 30;
+      const duration = plan.duration_days || 30;
+      const months = duration / 30;
       return acc + Math.round(plan.price / months);
     }, 0);
   }, [members, plans]);
@@ -234,7 +241,6 @@ export default function App() {
       .substring(0, 2);
   };
 
-  // If unauthenticated, show the Auth Portal
   if (!gymId) {
     return <AuthModal onSuccess={handleAuthSuccess} />;
   }
@@ -242,11 +248,11 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col font-sans selection:bg-emerald-500/20">
       
-      {/* Glow Ambient Highlights */}
+      {/* Background radial glow */}
       <div className="fixed top-0 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-[128px] pointer-events-none" />
       <div className="fixed top-20 right-1/4 w-96 h-96 bg-teal-500/5 rounded-full blur-[140px] pointer-events-none" />
 
-      {/* Header */}
+      {/* Top Header */}
       <header className="border-b border-slate-800/80 bg-[#090d16]/75 backdrop-blur-md sticky top-0 z-30 px-4 sm:px-8 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-3.5">
           <div className="h-11 w-11 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-400 p-[1px] shadow-lg shadow-emerald-500/20">
@@ -269,32 +275,43 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        {/* Header Action Buttons */}
+        <div className="flex items-center gap-2 sm:gap-2.5">
           <button 
             onClick={() => {
               if (plans.length > 0) handlePlanSelect(plans[0]);
               setIsModalOpen(true);
             }}
-            className="group relative flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs sm:text-sm transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
+            className="group relative flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-bold px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
           >
             <Plus className="h-4 w-4 transition-transform group-hover:rotate-90 duration-300" />
             <span>Add Member</span>
           </button>
 
+          {/* Settings Button */}
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            title="Gym & Profile Settings"
+            className="p-2 sm:p-2.5 rounded-xl text-slate-400 hover:text-emerald-400 hover:bg-slate-800/80 border border-slate-800 transition active:scale-95"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+
+          {/* Sign Out Button */}
           <button
             onClick={handleSignOut}
             title="Sign out of gym"
-            className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 border border-slate-800 transition"
+            className="p-2 sm:p-2.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 border border-slate-800 transition active:scale-95"
           >
             <LogOut className="h-4 w-4" />
           </button>
         </div>
       </header>
 
-      {/* Main Container */}
+      {/* Main Content Area */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-8 space-y-7 z-10">
         
-        {/* Modern Metrics Grid */}
+        {/* Metric Cards Grid */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           
           <div className="relative overflow-hidden p-5 rounded-2xl border border-slate-800/90 bg-gradient-to-b from-[#0e1424] to-[#0a0f1d] shadow-sm hover:border-slate-700/80 transition-all">
@@ -631,6 +648,21 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Settings Modal */}
+      {isSettingsOpen && gymId && (
+        <SettingsModal
+          gymId={gymId}
+          initialGymName={gymName}
+          initialOwnerName={ownerName}
+          onClose={() => setIsSettingsOpen(false)}
+          onUpdated={(newName, newOwner) => {
+            setGymName(newName);
+            setOwnerName(newOwner);
+          }}
+        />
+      )}
+
     </div>
   );
 }

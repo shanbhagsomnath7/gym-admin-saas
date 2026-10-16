@@ -82,3 +82,11 @@ class TokenResponse(BaseModel):
     gym_id: UUID
     gym_name: str
     owner_name: str
+
+# --- Gym Profile Update Schema ---
+class GymUpdate(BaseModel):
+    name: Optional[str] = None
+    owner_name: Optional[str] = None
+    phone: Optional[str] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None

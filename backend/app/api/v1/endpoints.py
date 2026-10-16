@@ -1,6 +1,6 @@
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.schemas.schemas import (
-    GymCreate, GymOut, 
+    GymCreate, GymOut, GymUpdate
     MemberCreate, MemberOut, 
     PlanCreate, PlanOut,
     AttendanceCreate, AttendanceOut,
@@ -10,7 +10,7 @@ from app.schemas.schemas import (
 from datetime import date
 from app.models.models import Gym, Member, Plan, Attendance
 from app.schemas.schemas import (
-    GymCreate, GymOut, 
+    GymCreate, GymOut, GymUpdate
     MemberCreate, MemberOut, 
     PlanCreate, PlanOut,
     AttendanceCreate, AttendanceOut
@@ -170,3 +170,35 @@ def get_today_checkins(gym_id: UUID, db: Session = Depends(get_db)):
         Attendance.check_in_date == today
     ).all()
     return [r[0] for r in records]
+
+@router.patch("/gyms/{gym_id}/profile", response_model=GymOut)
+def update_gym_profile(gym_id: UUID, payload: GymUpdate, db: Session = Depends(get_db)):
+    gym = db.query(Gym).filter(Gym.id == gym_id).first()
+    if not gym:
+        raise HTTPException(status_code=404, detail="Gym not found.")
+
+    # Update basic profile fields
+    if payload.name:
+        gym.name = payload.name.strip()
+    if payload.owner_name:
+        gym.owner_name = payload.owner_name.strip()
+    if payload.phone:
+        gym.phone = payload.phone.strip()
+
+    # Password update logic with verification
+    if payload.new_password:
+        if not payload.current_password:
+            raise HTTPException(
+                status_code=400, 
+                detail="Current password is required to set a new password."
+            )
+        if not verify_password(payload.current_password, gym.hashed_password):
+            raise HTTPException(
+                status_code=400, 
+                detail="Incorrect current password."
+            )
+        gym.hashed_password = get_password_hash(payload.new_password)
+
+    db.commit()
+    db.refresh(gym)
+    return gym
