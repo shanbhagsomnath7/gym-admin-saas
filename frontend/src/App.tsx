@@ -13,11 +13,8 @@ import {
   IndianRupee, 
   Layers, 
   UserCheck, 
-  Clock, 
   Sparkles,
-  CheckCircle2,
-  TrendingUp,
-  ChevronRight
+  TrendingUp
 } from 'lucide-react';
 import { apiClient } from './services/api';
 import type { Member, MemberCreatePayload, Plan } from './services/api';
